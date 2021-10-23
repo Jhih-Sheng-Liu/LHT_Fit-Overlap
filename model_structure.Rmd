@@ -1,0 +1,141 @@
+---
+title: "zoib_module"
+output: html_document
+---
+
+#install.packages
+```{r}
+
+install.packages(c(
+#"ggplot2",
+"tidyverse",
+"knitr",
+"dplyr",
+"lme4",
+"lmerTest",
+"MuMIn",
+"nlme",
+"glmmTMB",
+"DHARMa",
+"car",
+"performance",
+"see",
+"patchwork",
+"brms"))
+
+install.packages("rstan",repos = c("https://mc-stan.org/r-packages/",getOption("repos")))
+
+install.packages("cmdstanr",repos = c("https://mc-stan.org/r-packages/",getOption("repos")))
+
+install.packages("StanHeaders",repos = c("https://mc-stan.org/r-packages/",getOption("repos")))
+
+#install.packages("rstanarm",repos = c("https://mc-stan.org/r-packages/",getOption("repos")))
+
+
+```
+
+
+#load packages
+```{r}
+
+
+library("ggplot2")
+library("tidyverse")
+library("knitr")
+library("dplyr")
+library("lme4")
+library("lmerTest")
+library("MuMIn")
+library("nlme")
+library("glmmTMB")
+library("DHARMa")
+library("car")
+library("performance")
+library("see")
+library("patchwork")
+library("brms")
+library("rstan")
+library("cmdstanr")
+library("StanHeaders")
+#library("rstanarm")
+
+```
+
+
+
+#Load Arranged CPUE infos of all NS sp.
+```{r}
+phylogeny_order <- read.csv("phylogenetic_order.csv") %>% select(-X) %>%
+  mutate_at("Species",as.factor) %>% mutate_at("Scientific_Name",as.factor)
+load("All_NS_sp.env.CPUE_infos_dataframe.RData")
+load("Range_Filter_Infos.RData")
+#cpue.lngt.yearqua
+#cpue.length.subarea.yearqua
+#cpue.length.year
+#cpue.year
+cpue.pair
+cpue.length.year.fil.range
+
+cpue.pair <- cpue.pair %>%
+  mutate(Scientific_Name =  factor(Scientific_Name,levels =  
+  phylogeny_order$Scientific_Name)) %>%
+  arrange(Scientific_Name) %>%
+  mutate(Species=factor(Species,levels = unique(Species)))
+#########################################################################
+Sp.RangeFilter.Join.Key <- cpue.length.year.fil.range %>% 
+  select(Region,Species,Scientific_Name,CPUE_Filtered_Status,YearQua,Year,Quarter) %>%
+  unique()
+
+cpue.pair <- left_join(Sp.RangeFilter.Join.Key,cpue.pair)
+
+```
+
+
+
+#ziob
+```{r}
+sp.CommonName.List <- as.character(unique(cpue.pair$Species))
+
+
+cpue.pair.sp <- cpue.pair %>% 
+    dplyr::filter(Species == sp.CommonName.List[i]) 
+
+ 
+  zoib_model <-  bf(
+  Area_overlap ~ Year_scale + (1+Year_scale|Pair_id),
+  phi ~ Year_scale +(1+Year_scale|Pair_id),
+  zoi ~ Year_scale +(1+Year_scale|Pair_id),
+  coi ~ Year_scale +(1+Year_scale|Pair_id), 
+  family = zero_one_inflated_beta()
+)
+  fit_zoib <-  brm(
+  formula = zoib_model,
+  data = cpue.pair.sp,
+  cores = 4,
+  iter = 2000,
+  chains = 4
+  #control = list(adapt_delta = 0.80)
+  
+)
+  
+  fit.res <- fit_zoib
+  fitsim <- simulateResiduals(fittedModel = fit_zoib, n = 250)
+  
+  
+  #jpeg(filename = paste0("draw/v3_draw/Update_Residual_plot/Density_Shorter/",i,"_",sp.CommonName.List[i],"_Residual.jpeg"    ))
+  plot(fitsim,quantreg=T)
+  
+  #dev.off()
+
+z<- posterior_samples(fit_zoib)
+
+posterior_samples(fit_zoib,pars = "b_") %>%
+  mutate_at(c("b_phi_Intercept","b_phi_Year_scale"),exp) %>%
+  mutate_at(vars(-"b_phi_Intercept",-"b_phi_Year_scale"),plogis) %>%
+  posterior_summary() %>%
+  as.data.frame()%>%
+  rownames_to_column("Parameter") %>%
+  kable(digits = 3)
+
+save(fit.res,file = "zoib_fit.RData")
+```
